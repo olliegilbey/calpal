@@ -1,0 +1,38 @@
+# Rust
+target/
+Cargo.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug files
+/tmp/
+*.html
+debug_*.txt
+
+# Environment
+.env
+.env.local
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+*.profraw
+
+# WASM build artifacts
+dist/
+pkg/
+
+# Node (for potential frontend tooling)
+node_modules/
+npm-debug.log*

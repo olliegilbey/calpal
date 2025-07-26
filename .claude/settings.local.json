@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:crates.io)",
+      "Bash(cargo search:*)",
+      "Bash(grep:*)"
+    ],
+    "deny": []
+  }
+}
