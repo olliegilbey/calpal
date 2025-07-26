@@ -18,3 +18,4 @@ futures = { workspace = true }
 
 [dev-dependencies]
 mockall = { workspace = true }
+tokio-test = "0.4.4"

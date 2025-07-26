@@ -5,7 +5,7 @@
 //!
 //! ## Parsing Philosophy
 //!
-//! Sports websites often have inconsistent date formats, incorrect weekdays, and 
+//! Sports websites often have inconsistent date formats, incorrect weekdays, and
 //! timezone ambiguities. Instead of failing hard, this system:
 //!
 //! 1. **Exact Match**: Try perfect parsing first
@@ -13,7 +13,7 @@
 //! 3. **Year Assumptions**: Try adjacent years for edge cases
 //! 4. **Rich Metadata**: Track what decisions were made for validation
 //!
-//! ## Time Independence 
+//! ## Time Independence
 //!
 //! All parsing can inject a "current time" for deterministic testing.
 //! Tests work in 2027 because they don't depend on `Utc::now()`.
@@ -41,9 +41,9 @@ pub struct WeekdayMismatch {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum ParsingStrategy {
-    ExactMatch,           // Weekday and date matched perfectly
-    WeekdayTolerant,      // Ignored incorrect weekday, used date
-    YearAssumption(i32),  // Assumed current year
+    ExactMatch,               // Weekday and date matched perfectly
+    WeekdayTolerant,          // Ignored incorrect weekday, used date
+    YearAssumption(i32),      // Assumed current year
     TimezoneFallback(String), // Used fallback timezone
 }
 
@@ -76,7 +76,7 @@ impl DateTimeParser {
 
     /// Get current time (real or mocked)
     fn get_current_time(&self) -> DateTime<Utc> {
-        self.current_time.unwrap_or_else(|| Utc::now())
+        self.current_time.unwrap_or_else(Utc::now)
     }
 
     /// Sophisticated multi-stage parsing with graceful degradation
@@ -86,29 +86,33 @@ impl DateTimeParser {
         time_str: &str,
     ) -> Result<(DateTime<Utc>, ParseMetadata), ScrapeError> {
         let current_year = self.get_current_time().year();
-        
+
         // Stage 1: Try exact parsing with claimed weekday
         if let Ok((datetime, metadata)) = self.try_exact_parsing(date_str, time_str, current_year) {
             return Ok((datetime, metadata));
         }
 
         // Stage 2: Try weekday-tolerant parsing
-        if let Ok((datetime, metadata)) = self.try_weekday_tolerant_parsing(date_str, time_str, current_year) {
+        if let Ok((datetime, metadata)) =
+            self.try_weekday_tolerant_parsing(date_str, time_str, current_year)
+        {
             return Ok((datetime, metadata));
         }
 
         // Stage 3: Try different year assumptions (for edge cases around year boundaries)
         for year_offset in [-1, 1] {
             let try_year = current_year + year_offset;
-            if let Ok((datetime, mut metadata)) = self.try_exact_parsing(date_str, time_str, try_year) {
+            if let Ok((datetime, mut metadata)) =
+                self.try_exact_parsing(date_str, time_str, try_year)
+            {
                 metadata.parsing_strategy = ParsingStrategy::YearAssumption(try_year);
                 return Ok((datetime, metadata));
             }
         }
 
-        Err(ScrapeError::InvalidDateTime(
-            format!("Could not parse datetime: {} {} (tried exact, weekday-tolerant, and year variants)", date_str, time_str)
-        ))
+        Err(ScrapeError::InvalidDateTime(format!(
+            "Could not parse datetime: {date_str} {time_str} (tried exact, weekday-tolerant, and year variants)"
+        )))
     }
 
     fn try_exact_parsing(
@@ -117,29 +121,32 @@ impl DateTimeParser {
         time_str: &str,
         year: i32,
     ) -> Result<(DateTime<Utc>, ParseMetadata), ScrapeError> {
-        let datetime_str = format!("{} {} {}", date_str, year, time_str);
-        
+        let datetime_str = format!("{date_str} {year} {time_str}");
+
         // Try multiple common formats
         let formats = [
-            "%a %b %d %Y %H:%M",      // "Sun Jul 27 2025 15:30"
-            "%a %b %e %Y %H:%M",      // "Sun Jul  7 2025 15:30" (single digit day)
-            "%A %B %d %Y %H:%M",      // "Sunday July 27 2025 15:30"
-            "%a, %b %d %Y %H:%M",     // "Sun, Jul 27 2025 15:30"
+            "%a %b %d %Y %H:%M",  // "Sun Jul 27 2025 15:30"
+            "%a %b %e %Y %H:%M",  // "Sun Jul  7 2025 15:30" (single digit day)
+            "%A %B %d %Y %H:%M",  // "Sunday July 27 2025 15:30"
+            "%a, %b %d %Y %H:%M", // "Sun, Jul 27 2025 15:30"
         ];
 
         for format in &formats {
             if let Ok(naive_dt) = NaiveDateTime::parse_from_str(&datetime_str, format) {
-                let timezone_dt = self.default_timezone
+                let timezone_dt = self
+                    .default_timezone
                     .from_local_datetime(&naive_dt)
                     .single()
-                    .ok_or_else(|| ScrapeError::InvalidDateTime(
-                        format!("Ambiguous local time: {}", datetime_str)
-                    ))?;
+                    .ok_or_else(|| {
+                        ScrapeError::InvalidDateTime(format!(
+                            "Ambiguous local time: {datetime_str}"
+                        ))
+                    })?;
 
                 let utc_dt = timezone_dt.with_timezone(&Utc);
-                
+
                 let metadata = ParseMetadata {
-                    original_source: format!("{} {}", date_str, time_str),
+                    original_source: format!("{date_str} {time_str}"),
                     weekday_mismatch: None,
                     timezone_assumptions: format!("Parsed as {} timezone", self.default_timezone),
                     parsing_strategy: ParsingStrategy::ExactMatch,
@@ -149,7 +156,9 @@ impl DateTimeParser {
             }
         }
 
-        Err(ScrapeError::InvalidDateTime(format!("No format matched: {}", datetime_str)))
+        Err(ScrapeError::InvalidDateTime(format!(
+            "No format matched: {datetime_str}"
+        )))
     }
 
     fn try_weekday_tolerant_parsing(
@@ -161,32 +170,37 @@ impl DateTimeParser {
         // Extract weekday and date parts
         let parts: Vec<&str> = date_str.split_whitespace().collect();
         if parts.len() < 3 {
-            return Err(ScrapeError::InvalidDateTime("Insufficient date parts".to_string()));
+            return Err(ScrapeError::InvalidDateTime(
+                "Insufficient date parts".to_string(),
+            ));
         }
 
         let claimed_weekday = parts[0];
         let date_without_weekday = parts[1..].join(" ");
-        
+
         // Try parsing without weekday validation
-        let datetime_str = format!("{} {} {}", date_without_weekday, year, time_str);
-        
+        let datetime_str = format!("{date_without_weekday} {year} {time_str}");
+
         let formats_without_weekday = [
-            "%b %d %Y %H:%M",         // "Jul 27 2025 15:30"
-            "%b %e %Y %H:%M",         // "Jul  7 2025 15:30"
-            "%B %d %Y %H:%M",         // "July 27 2025 15:30"
+            "%b %d %Y %H:%M", // "Jul 27 2025 15:30"
+            "%b %e %Y %H:%M", // "Jul  7 2025 15:30"
+            "%B %d %Y %H:%M", // "July 27 2025 15:30"
         ];
 
         for format in &formats_without_weekday {
             if let Ok(naive_dt) = NaiveDateTime::parse_from_str(&datetime_str, format) {
-                let timezone_dt = self.default_timezone
+                let timezone_dt = self
+                    .default_timezone
                     .from_local_datetime(&naive_dt)
                     .single()
-                    .ok_or_else(|| ScrapeError::InvalidDateTime(
-                        format!("Ambiguous local time: {}", datetime_str)
-                    ))?;
+                    .ok_or_else(|| {
+                        ScrapeError::InvalidDateTime(format!(
+                            "Ambiguous local time: {datetime_str}"
+                        ))
+                    })?;
 
                 let utc_dt = timezone_dt.with_timezone(&Utc);
-                
+
                 // Check if weekday actually matches
                 let actual_weekday = timezone_dt.weekday();
                 let weekday_mismatch = if !self.weekday_matches(claimed_weekday, actual_weekday) {
@@ -200,7 +214,7 @@ impl DateTimeParser {
                 };
 
                 let metadata = ParseMetadata {
-                    original_source: format!("{} {}", date_str, time_str),
+                    original_source: format!("{date_str} {time_str}"),
                     weekday_mismatch,
                     timezone_assumptions: format!("Parsed as {} timezone", self.default_timezone),
                     parsing_strategy: ParsingStrategy::WeekdayTolerant,
@@ -210,24 +224,26 @@ impl DateTimeParser {
             }
         }
 
-        Err(ScrapeError::InvalidDateTime(format!("Weekday-tolerant parsing failed: {}", datetime_str)))
+        Err(ScrapeError::InvalidDateTime(format!(
+            "Weekday-tolerant parsing failed: {datetime_str}"
+        )))
     }
 
     fn weekday_matches(&self, claimed: &str, actual: Weekday) -> bool {
         let claimed_lower = claimed.to_lowercase();
         let actual_str = self.weekday_to_string(actual).to_lowercase();
-        
+
         // Check both abbreviated and full forms
-        claimed_lower == actual_str || 
-        claimed_lower == &actual_str[..3] || // "sun" matches "sunday"
-        claimed_lower.starts_with(&actual_str[..3])
+        claimed_lower == actual_str ||
+            claimed_lower == actual_str[..3] || // "sun" matches "sunday"
+            claimed_lower.starts_with(&actual_str[..3])
     }
 
     fn weekday_to_string(&self, weekday: Weekday) -> &'static str {
         match weekday {
             Weekday::Mon => "Monday",
             Weekday::Tue => "Tuesday",
-            Weekday::Wed => "Wednesday", 
+            Weekday::Wed => "Wednesday",
             Weekday::Thu => "Thursday",
             Weekday::Fri => "Friday",
             Weekday::Sat => "Saturday",
@@ -238,35 +254,34 @@ impl DateTimeParser {
 
 impl ParseMetadata {
     pub fn to_timezone_info(&self) -> String {
-        let mut info = format!("{} - {}", 
-            self.timezone_assumptions, 
-            self.original_source);
+        let mut info = format!("{} - {}", self.timezone_assumptions, self.original_source);
 
         if let Some(ref mismatch) = self.weekday_mismatch {
-            info.push_str(&format!(" (claimed {}, actually {})", 
-                mismatch.claimed_weekday, 
-                mismatch.actual_weekday));
+            info.push_str(&format!(
+                " (claimed {}, actually {})",
+                mismatch.claimed_weekday, mismatch.actual_weekday
+            ));
         }
 
         match &self.parsing_strategy {
-            ParsingStrategy::ExactMatch => {},
+            ParsingStrategy::ExactMatch => {}
             ParsingStrategy::WeekdayTolerant => {
                 info.push_str(" [weekday-tolerant parsing]");
-            },
+            }
             ParsingStrategy::YearAssumption(year) => {
-                info.push_str(&format!(" [assumed year {}]", year));
-            },
+                info.push_str(&format!(" [assumed year {year}]"));
+            }
             ParsingStrategy::TimezoneFallback(tz) => {
-                info.push_str(&format!(" [fallback timezone: {}]", tz));
-            },
+                info.push_str(&format!(" [fallback timezone: {tz}]"));
+            }
         }
 
         info
     }
 
     pub fn has_data_quality_issues(&self) -> bool {
-        self.weekday_mismatch.is_some() || 
-        !matches!(self.parsing_strategy, ParsingStrategy::ExactMatch)
+        self.weekday_mismatch.is_some()
+            || !matches!(self.parsing_strategy, ParsingStrategy::ExactMatch)
     }
 }
 
@@ -275,8 +290,8 @@ impl fmt::Display for ParsingStrategy {
         match self {
             ParsingStrategy::ExactMatch => write!(f, "Exact Match"),
             ParsingStrategy::WeekdayTolerant => write!(f, "Weekday Tolerant"),
-            ParsingStrategy::YearAssumption(year) => write!(f, "Year Assumption ({})", year),
-            ParsingStrategy::TimezoneFallback(tz) => write!(f, "Timezone Fallback ({})", tz),
+            ParsingStrategy::YearAssumption(year) => write!(f, "Year Assumption ({year})"),
+            ParsingStrategy::TimezoneFallback(tz) => write!(f, "Timezone Fallback ({tz})"),
         }
     }
 }
@@ -299,11 +314,11 @@ mod tests {
         // Mock July 27, 2025 as current time (Sunday)
         let mock_now = Utc.with_ymd_and_hms(2025, 7, 27, 12, 0, 0).unwrap();
         let parser = create_test_parser_with_fixed_date(mock_now);
-        
+
         // July 27, 2025 is actually a Sunday - should parse exactly
         let result = parser.parse_with_weekday_tolerance("Sun Jul 27", "15:30");
         assert!(result.is_ok());
-        
+
         let (_datetime, metadata) = result.unwrap();
         assert_eq!(metadata.parsing_strategy, ParsingStrategy::ExactMatch);
         assert!(metadata.weekday_mismatch.is_none());
@@ -314,15 +329,15 @@ mod tests {
         // Mock July 27, 2025 as current time (Sunday)
         let mock_now = Utc.with_ymd_and_hms(2025, 7, 27, 12, 0, 0).unwrap();
         let parser = create_test_parser_with_fixed_date(mock_now);
-        
+
         // July 27, 2025 is Sunday, but we claim it's Monday - should use weekday tolerance
         let result = parser.parse_with_weekday_tolerance("Mon Jul 27", "15:30");
         assert!(result.is_ok());
-        
+
         let (_datetime, metadata) = result.unwrap();
         assert_eq!(metadata.parsing_strategy, ParsingStrategy::WeekdayTolerant);
         assert!(metadata.weekday_mismatch.is_some());
-        
+
         let mismatch = metadata.weekday_mismatch.unwrap();
         assert_eq!(mismatch.claimed_weekday, "Mon");
         assert_eq!(mismatch.actual_weekday, "Sunday");
@@ -331,13 +346,13 @@ mod tests {
     #[test]
     fn test_timezone_info_generation() {
         let parser = create_london_parser();
-        
+
         let result = parser.parse_with_weekday_tolerance("Mon Jul 27", "15:30");
         assert!(result.is_ok());
-        
+
         let (_, metadata) = result.unwrap();
         let timezone_info = metadata.to_timezone_info();
-        
+
         assert!(timezone_info.contains("claimed Mon, actually Sunday"));
         assert!(timezone_info.contains("weekday-tolerant parsing"));
         assert!(timezone_info.contains("Europe/London"));
@@ -346,11 +361,11 @@ mod tests {
     #[test]
     fn test_complete_parsing_failure() {
         let parser = create_london_parser();
-        
+
         // Completely invalid date
         let result = parser.parse_with_weekday_tolerance("InvalidDay Blah 99", "25:99");
         assert!(result.is_err());
-        
+
         if let Err(ScrapeError::InvalidDateTime(msg)) = result {
             assert!(msg.contains("tried exact, weekday-tolerant, and year variants"));
         } else {
@@ -363,37 +378,37 @@ mod tests {
         // Mock current time as Jan 15, 2025 (which is a Wednesday)
         let mock_now = Utc.with_ymd_and_hms(2025, 1, 15, 12, 0, 0).unwrap();
         let parser = create_test_parser_with_fixed_date(mock_now);
-        
+
         // Test with "Mon Jan 1" - Jan 1, 2025 is Wed (wrong), but Jan 1, 2024 was Mon (correct)
-        // Stage 1: Exact parse "Mon Jan 1 2025" → Fails (Mon ≠ Wed) 
+        // Stage 1: Exact parse "Mon Jan 1 2025" → Fails (Mon ≠ Wed)
         // Stage 2: Weekday tolerant "Jan 1 2025" → Succeeds with mismatch
         // So this should use WeekdayTolerant, not YearAssumption
         let result = parser.parse_with_weekday_tolerance("Mon Jan 1", "12:00");
         assert!(result.is_ok());
-        
+
         let (datetime, metadata) = result.unwrap();
-        
+
         // This should use weekday tolerance and stay in 2025
         assert_eq!(metadata.parsing_strategy, ParsingStrategy::WeekdayTolerant);
         assert_eq!(datetime.year(), 2025);
         assert!(metadata.weekday_mismatch.is_some());
     }
 
-    #[test] 
+    #[test]
     fn test_year_assumption_mechanism() {
         // This test demonstrates that year assumption mechanism exists
         // Even though it's rarely triggered in practice due to weekday tolerance
         let mock_now = Utc.with_ymd_and_hms(2025, 1, 15, 12, 0, 0).unwrap();
         let parser = create_test_parser_with_fixed_date(mock_now);
-        
+
         // Test an edge case: if current year parsing fails completely,
         // the system should try other years. This is the fallback mechanism.
         // For now, just verify the public interface works as expected.
         let result = parser.parse_with_weekday_tolerance("Wed Jan 15", "15:30");
         assert!(result.is_ok());
-        
+
         let (datetime, metadata) = result.unwrap();
-        
+
         // Wed Jan 15, 2025 should parse exactly since our mock date is Jan 15, 2025 (Wed)
         assert_eq!(metadata.parsing_strategy, ParsingStrategy::ExactMatch);
         assert_eq!(datetime.year(), 2025);
@@ -403,7 +418,7 @@ mod tests {
     #[test]
     fn test_weekday_matching_logic() {
         let parser = create_london_parser();
-        
+
         // Test various weekday format recognition
         assert!(parser.weekday_matches("Sun", Weekday::Sun));
         assert!(parser.weekday_matches("Sunday", Weekday::Sun));

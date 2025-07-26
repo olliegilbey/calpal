@@ -48,17 +48,17 @@ impl BrowserScraper {
             .window_size(1920, 1080)
             .no_sandbox()
             .build()
-            .map_err(|e| ScrapeError::Network(format!("Browser config failed: {}", e)))?;
+            .map_err(|e| ScrapeError::Network(format!("Browser config failed: {e}")))?;
 
         let (browser, mut handler) = Browser::launch(config)
             .await
-            .map_err(|e| ScrapeError::Network(format!("Failed to launch browser: {}", e)))?;
+            .map_err(|e| ScrapeError::Network(format!("Failed to launch browser: {e}")))?;
 
         // Spawn the handler to process browser events
         tokio::spawn(async move {
             while let Some(h) = handler.next().await {
                 if let Err(e) = h {
-                    eprintln!("Browser handler error: {}", e);
+                    eprintln!("Browser handler error: {e}");
                 }
             }
         });
@@ -84,22 +84,22 @@ impl BrowserScraper {
             .browser
             .new_page("about:blank")
             .await
-            .map_err(|e| ScrapeError::Network(format!("Failed to create new page: {}", e)))?;
+            .map_err(|e| ScrapeError::Network(format!("Failed to create new page: {e}")))?;
 
         // Set a proper User-Agent for sports websites
         page.set_user_agent("CalPal/1.0 (Sports Calendar Scraper; Chrome/120.0.0.0)")
             .await
-            .map_err(|e| ScrapeError::Network(format!("Failed to set user agent: {}", e)))?;
+            .map_err(|e| ScrapeError::Network(format!("Failed to set user agent: {e}")))?;
 
         // Navigate to the URL
         page.goto(url)
             .await
-            .map_err(|e| ScrapeError::Network(format!("Failed to navigate to {}: {}", url, e)))?;
+            .map_err(|e| ScrapeError::Network(format!("Failed to navigate to {url}: {e}")))?;
 
         // Wait for initial page load
         page.wait_for_navigation()
             .await
-            .map_err(|e| ScrapeError::Network(format!("Navigation timeout for {}: {}", url, e)))?;
+            .map_err(|e| ScrapeError::Network(format!("Navigation timeout for {url}: {e}")))?;
 
         // For dynamic content, wait a bit longer for AJAX calls to complete
         // This is especially important for Drupal Views that load via AJAX
@@ -109,11 +109,10 @@ impl BrowserScraper {
         let html = page
             .content()
             .await
-            .map_err(|e| ScrapeError::Parse(format!("Failed to extract HTML content: {}", e)))?;
+            .map_err(|e| ScrapeError::Parse(format!("Failed to extract HTML content: {e}")))?;
 
         Ok(html)
     }
-
 }
 
 impl Drop for BrowserScraper {
@@ -136,12 +135,13 @@ mod tests {
     #[tokio::test]
     #[ignore] // Requires Chrome/Chromium and network access
     async fn test_simple_page_fetch() {
-        let browser = BrowserScraper::new().await.expect("Browser should initialize");
+        let browser = BrowserScraper::new()
+            .await
+            .expect("Browser should initialize");
         let html = browser.get_rendered_html("https://httpbin.org/html").await;
-        
+
         assert!(html.is_ok(), "Should fetch simple HTML page");
         let content = html.unwrap();
         assert!(content.contains("<html>"), "Should contain HTML content");
     }
-
 }
